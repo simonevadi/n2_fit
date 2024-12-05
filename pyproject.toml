@@ -1,11 +1,11 @@
 [project]
 name = "n2_fit"
-version = "0.0.1"
+version = "0.0.2"
 
 authors = [
   { name="Simone Vadilonga", email="simone.vadilonga@helmholtz-berlin.de" },
 ]
-description = "N2 fit and related stuff"
+description = "A project to fit N2 spectra with different models"
 readme = "README.md"
 license = { file="LICENSE" }
 requires-python = ">=3.10"
@@ -24,7 +24,7 @@ dependencies = [
             'tqdm>=4.67.1',
 ]
 
-# [project.urls]
-# "Homepage" = ""
+[project.urls]
+"Homepage" = "https://github.com/simonevadi/n2_fit"
 # "Bug Tracker" = ""
 # "Documentation" = ""
