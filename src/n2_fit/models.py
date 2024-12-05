@@ -143,9 +143,10 @@ class N2SkewedVoigtModel:
         sigma_g_max = np.inf
         center_scale_factor = 2
         differences = np.diff(theoretical_centers)
-        x = [0,energy.shape[0]]
-        y = [np.average(intensity[0:3]), np.average(intensity[-3:-1])]
-        lin_slope, intercept = estimate_line_parameters(x,y)
+        lin_slope, intercept = estimate_line_parameters(
+            [0, energy.shape[0]],  # x-coordinates
+            [np.average(intensity[0:3]), np.average(intensity[-3:])]  # y-values
+        )
         guess = {}
         for index in range(1, n_peaks+1):
             if energy_first_peak == 'auto' and index ==1:
@@ -159,7 +160,7 @@ class N2SkewedVoigtModel:
                 vc_intensity = calculate_skewed_voigt_amplitude(vc, sigma_g, gamma, 0, vc_intensity)
 
             if vc_intensity < 0:
-                vc_intensity = 0.00001#theoretical_intensities[index-1]
+                vc_intensity = guess[f'amp{index-1}']/3
 
             guess[f'vc{index}'] = vc 
             guess[f'amp{index}']  = vc_intensity
