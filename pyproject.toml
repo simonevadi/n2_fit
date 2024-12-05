@@ -1,0 +1,30 @@
+[project]
+name = "n2_fit"
+version = "0.0.1"
+
+authors = [
+  { name="Simone Vadilonga", email="simone.vadilonga@helmholtz-berlin.de" },
+]
+description = "N2 fit and related stuff"
+readme = "README.md"
+license = { file="LICENSE" }
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License"
+]
+
+dependencies = [
+            'numpy>=1.22.0',
+            'psutil>=5.9.1',
+            'matplotlib>=3.5.1',
+            'pandas>=2.1.4',
+            'lmfit>=1.3.2', 
+            'ipython>=8.30.0', 
+            'tqdm>=4.67.1',
+]
+
+# [project.urls]
+# "Homepage" = ""
+# "Bug Tracker" = ""
+# "Documentation" = ""
