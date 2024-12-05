@@ -1,37 +1,33 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import os
-
 from tqdm import tqdm
 
-from lmfit.models import LinearModel
-from lmfit import Parameters
-
-from numpy import pi
-
-from .models import Models
-from .helper_functions import calculate_skewed_voigt_amplitude
+from .models import N2SkewedVoigtModel
 from .helper_functions import extract_RP_ratio_for_table
 
 class CreateTable:
     """
-    A class to fit the N2 spectra and return the RP and the 
-    1st valley over 3rd peak ratio
-    
-    instantiate with 
-      from .base import *
-      from bessyii.plans.n2fit import N2_fit
-      N2fit_class = N2_fit(db)
-      fit_n2 = N2fit_class.fit_n2
+    A class dedicated to creating tables for analyzing the 3rd-peak to 1st-valley ratio
+    in spectral data using various fitting models.
 
-    then use with:
-    
-      fit_n2(identifier,...)
-
+    Attributes:
+        theoretical_centers (np.array): Theoretical center positions for spectral peaks.
+        first_peak (float): Position of the first peak in the spectrum, used as a reference.
+        theoretical_intensities (np.array): Theoretical intensities of the peaks based on Voigt profiles.
+        voigt_intensities (np.array): Modeled intensities of the peaks using the Skewed Voigt model.
+        models (Models): An instance of a modeling class to access various spectral fitting functions.
     """
-    def __init__(self):
+    def __init__(self, model='SkewedVoigt'):
+        """
+        Initializes the CreateTable instance with predetermined spectral characteristics and the specified model.
 
+        Parameters:
+            model (str): Specifies the model to use for spectral fitting. Currently, only 'SkewedVoigt' is implemented.
+
+        Raises:
+            NotImplementedError: If a model other than 'SkewedVoigt' is specified.
+        """
         self.theoretical_centers=np.array([400.880,401.114,401.341,
                                            401.563,401.782,401.997,
                                            402.208,402.414])
@@ -45,87 +41,38 @@ class CreateTable:
                                            0.015676096467807606,
                                            0.005823501673555101,
                                             0.002160335806013886])
-        self.models = Models()
-        
-    
-    
-    def make_model(self, dict_fit, fit_gamma = False):
-
-        pars = Parameters()
-
-        lin_mod = LinearModel(prefix='lin_')
-        pars.update(lin_mod.make_params())
-        pars['lin_slope'].set(value=dict_fit['linear']['slope'], min=0)
-        pars['lin_intercept'].set(value=dict_fit['linear']['intercept'])
-        mod = lin_mod
-
-        for voigt_n in list(dict_fit.keys()):
-            if 'voigt' in voigt_n:
-                voigt_dict = dict_fit[voigt_n]
-                fit = self.models.config_SkewedVoigtModel(voigt_n,
-                                                voigt_dict['prefix'], 
-                                                voigt_dict['center'], 
-                                                voigt_dict['center_low_lim'], 
-                                                voigt_dict['center_high_lim'], 
-                                                voigt_dict['sigma'], 
-                                                voigt_dict['sigma_low_lim'], 
-                                                voigt_dict['sigma_high_lim'], 
-                                                voigt_dict['amplitude'], 
-                                                voigt_dict['amplitude_low_lim'], 
-                                                voigt_dict['amplitude_high_lim'],
-                                                voigt_dict['gamma'], 
-                                                voigt_dict['skew_parameter'], 
-                                                pars, 
-                                                vary_gamma=fit_gamma)
-                mod = mod + fit
-        
-        return mod, pars
-    
-
-    def prepare_param_for_table(self, fwhm_g=0.07, gamma=0.0565):
-
-        sigma_g   = fwhm_g/2.35
-        fwhm_g    = 2.355*sigma_g
-        intercept = 0
-        n_peaks   = 7
-        lin_slope = 0
-        skew_param = 0
-        
-        guess = {}
-        for index in range(1, n_peaks+1):
-            vc           = self.theoretical_centers[index-1]
-            vc_intensity = self.voigt_intensities[index-1]
-            guess[f'vc{index}'] = vc 
-            guess[f'amp{index}']  = vc_intensity
-        
-        dict_fit = {}
-        for index, peak_number in enumerate(range(1, n_peaks+1)):
-            model_name = f'voigt{peak_number}'
-            prefix = f'v{peak_number}_'
-            center = guess[f'vc{peak_number}']
-            amplitude = guess[f'amp{peak_number}']
-            dict_fit[model_name] = {
-                'prefix': prefix, 
-                'center':center, 
-                'center_low_lim':center - fwhm_g, 
-                'center_high_lim':center + fwhm_g, 
-                'sigma':sigma_g, 'sigma_low_lim':sigma_g-1, 'sigma_high_lim':sigma_g+1,
-                'amplitude':amplitude, 'amplitude_low_lim':amplitude-1, 
-                'amplitude_high_lim':amplitude+1, 
-                'gamma': gamma, 'gamma_low_lim':gamma-1, 'skew_parameter':skew_param
-            }
-        
-        dict_fit['linear'] = {'slope':lin_slope, 'intercept':intercept}
-        
-        return dict_fit
-        
-    def create_table(self, savepath, fwhm_g=None, fwhm_l=None):
-        if fwhm_g is None:
-            fwhm_g = np.arange(0.01, .15, 0.001)
-        if fwhm_l is None:
-            gamma = np.arange(0.055, 0.0601, 0.0005)
+        if model == 'SkewedVoigt':
+            self.model = N2SkewedVoigtModel()
         else:
-            gamma = fwhm_l/2/1000
+            raise NotImplemented('No other Model is Implemented')
+        
+    def create_table(self, savepath:str=None, fwhm_g:np.array=None, fwhm_l:np.array=None):
+        """
+        Generates a table of resolving power (RP) and 3rd-peak to 1st-valley (3P1V) ratios across a range of
+        Full Width at Half Maximum (FWHM) for Gaussian and Lorentzian widths in spectral data analysis.
+
+        Parameters:
+            savepath (str, optional): The path where the resulting table will be saved as a CSV file. If None, the table
+                                      is not saved to disk.
+            fwhm_g (np.array, optional): Array of Gaussian widths (in eV) to simulate. Defaults to a range of 0.01 to 0.15 eV
+                                         with a step of 0.001 eV if not provided.
+            fwhm_l (np.array, optional): Array of Lorentzian widths (in meV) to simulate. Defaults to a range of 55 to 60.1 meV
+                                         with a step of 0.5 meV if not provided.
+
+        Returns:
+            pd.DataFrame: A DataFrame containing the FWHM Lorentzian (in meV), FWHM Gaussian (in meV), resolving power,
+                          and 3P1V ratios for the simulated conditions.
+        """
+        if fwhm_g is None:
+            fwhm_g = np.arange(0.01, .15, 0.001)  
+        else:
+            fwhm_g = fwhm_g.astype(float) / 1000.0  
+
+        if fwhm_l is None:
+            gamma = np.arange(0.055, 0.0601, 0.0005)  
+        else:
+            gamma = fwhm_l.astype(float) / 2 /1000.0  
+
         
         results = []
         total_iterations = len(gamma) * len(fwhm_g)
@@ -133,8 +80,8 @@ class CreateTable:
 
         for g in gamma:
             for f in fwhm_g:
-                dict_fit = self.prepare_param_for_table(fwhm_g=f, gamma=g)
-                mod, pars = self.make_model(dict_fit)
+                dict_fit = self.model.prepare_param_for_table(self.theoretical_centers, self.theoretical_centers, fwhm_g=f, gamma=g)
+                mod, pars = self.model.make_model(dict_fit)
                 energy = np.arange(self.theoretical_centers[0]-1, self.theoretical_centers[-1]+1, 0.01)
                 intensity = mod.eval(pars, x=energy)
                 vp_ratio = extract_RP_ratio_for_table(energy, intensity, pars)
@@ -146,10 +93,33 @@ class CreateTable:
 
         # Convert results to DataFrame and save as CSV
         df_results = pd.DataFrame(results)
-        df_results.to_csv(savepath, index=False)
+        if savepath is not None:
+            df_results.to_csv(savepath, index=False)
         return df_results    
 
-    def plot_fwhm_vs_rp(self, table_to_plot='tables/table.csv', save_path=False, show_plot=False):
+    def plot_table(self, table_to_plot='tables/table.csv', save_path=False, show_plot=False):
+        """
+        Plots the relationship between the resolving power (RP) and the third peak to first valley ratio (3P1V Ratio),
+        categorized by different Lorentzian Full Width at Half Maximum (FWHM) values from a specified table.
+
+        Parameters:
+            table_to_plot (str): Path to the CSV file that contains the simulation data for plotting.
+                                Default is 'tables/table.csv'.
+            save_path (str, optional): The file path where the plot image will be saved. If None, the plot is not saved to disk.
+                                    Providing a path will automatically save the plot to that location.
+            show_plot (bool): A flag to determine whether to display the plot in the UI. Default is False.
+
+        Returns:
+            None: The function directly plots the graph or saves it to a file depending on the input parameters.
+
+        Raises:
+            FileNotFoundError: If the specified table_to_plot does not exist.
+            Exception: General exceptions related to plotting errors or data issues, which might need further investigation.
+
+        This function reads the provided CSV file to extract data, then plots the resolving power against the 3P1V Ratio
+        for each unique Lorentzian width defined in the 'FWHM_l (meV)' column of the DataFrame. Each Lorentzian width is
+        represented as a separate line in the plot to visually discern the impact of Lorentzian width on the spectral analysis.
+        """
         # Read the data from the CSV file
         df = pd.read_csv(table_to_plot)
 
@@ -179,8 +149,10 @@ class CreateTable:
         if show_plot:
             plt.show()
 
+        return ax  # Optional, in case you need to further manipulate the Axes object outside the function
 
-   
+
+
 
 
 

@@ -1,73 +1,69 @@
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import os
 import json
+from pprint import pprint
 
-from lmfit.models import LinearModel
-from lmfit import Parameters
 
-from numpy import pi
-
-from .models import Models
-from .helper_functions import remove_neg_values, calculate_skewed_voigt_amplitude
-from .helper_functions import find_first_max, find_max_around_theoretical
+from .models import N2SkewedVoigtModel
+from .helper_functions import remove_neg_values
 from .helper_functions import extract_bandwidth_and_rp, extract_RP_ratio
 from .helper_functions import find_closest_fwhm, format_val, convert_to_json_serializable
 from .helper_functions import calculate_rms
 
 class N2_fit:
     """
-    A class to fit the N2 spectra and return the RP and the 
-    1st valley over 3rd peak ratio
-    
-    instantiate with 
-      from .base import *
-      from bessyii.plans.n2fit import N2_fit
-      N2fit_class = N2_fit(db)
-      fit_n2 = N2fit_class.fit_n2
+    A class dedicated to fitting N2 spectra, calculating resolving power (RP), and analyzing the ratio between the 
+    first valley and the third peak in spectral data.
 
-    then use with:
-    
-      fit_n2(identifier,...)
-
+    Attributes:
+        _db (database connection or None): Database connection if provided, used to retrieve spectra data.
+        tiny (float): A small number to avoid division by zero in calculations.
+        s2 (float): Square root of 2, used in various calculations.
+        s2pi (float): Square root of 2 times pi, used in normalization.
+        theoretical_centers (np.array): Theoretical center positions for spectral peaks.
+        first_peak (float): The energy position of the first peak, used as a reference for calculations.
+        theoretical_intensities (np.array): Theoretical intensities of peaks at the theoretical centers.
+        model (object): An instance of a modeling class (e.g., N2SkewedVoigtModel) for spectral fitting.
     """
-    def __init__(self, db=None):
+    def __init__(self, model:str='SkewedVoigt', db=None):
+        """
+        Initializes the N2_fit class with a specified model and database connection.
+
+        Parameters:
+            model (str): The name of the model to use for fitting, defaults to 'SkewedVoigt'.
+            db (optional): A database connection to retrieve scan data, defaults to None.
+
+        Raises:
+            NotImplemented: If a model other than 'SkewedVoigt' is specified.
+        """
         self._db = db
         self.tiny = 1.0e-15
         self.s2   = np.sqrt(2)
-        self.s2pi = np.sqrt(2*pi)
+        self.s2pi = np.sqrt(2*np.pi)
         self.theoretical_centers=np.array([400.880,401.114,401.341,
                                            401.563,401.782,401.997,
                                            402.208,402.414])
         self.first_peak = 400.76
         self.theoretical_intensities=np.array([1,0.9750,0.5598,0.2443,
                                             0.0959,0.0329,0.0110,0.0027])
-        self.models = Models()
+        if model == 'SkewedVoigt':
+            self.model = N2SkewedVoigtModel()
+        else:
+            raise NotImplemented('No other Model is Implemented')
         
-    def retrieve_spectra(self, identifier, motor=None, detector=None):
+    def _retrieve_spectra(self, identifier, motor=None, detector=None):
         """
-        Retrieve the motor and detector values from one scan
+        Retrieves spectral data based on the provided identifier, motor, and detector names.
 
-        Parameters
-        ----------
-        identifier : negative int or string
-            for the last scan -1
-            or use the db indentifier
-            'Jens': if available it loads the data from P04,
-            the old beamline of J.Viefhaus
-        motor : string
-            the motor and axis name connected by a _
-            for instance m1.tx would be m1_tx
-        detector : string
-            the detector to retrieve, if more than one detector was used
-            in the scan and we don't want to use the first one
+        Parameters:
+            identifier (str or int): Identifier for the data set, can be a file path or a database identifier.
+            motor (str, optional): Name of the motor to retrieve data from, defaults to the primary motor if not specified.
+            detector (str, optional): Name of the detector to retrieve data from, defaults to the primary detector if not specified.
 
-        Return
-        --------
-        x,y : np.array
-            two arrays containing motor and detector values
-        """
+        Returns:
+            tuple: Two numpy arrays containing the motor values (x) and the detector values (y).
+        """        
         if '.' in identifier:
             dat       = np.loadtxt(identifier)
             x    = dat[:, 0]
@@ -85,46 +81,24 @@ class N2_fit:
             x,y = remove_neg_values(x,y)
         return x, y
     
-    def make_model(self, dict_fit, fit_gamma = False):
-
-        pars = Parameters()
-
-        lin_mod = LinearModel(prefix='lin_')
-        pars.update(lin_mod.make_params())
-        pars['lin_slope'].set(value=dict_fit['linear']['slope'], min=0)
-        pars['lin_intercept'].set(value=dict_fit['linear']['intercept'])
-        mod = lin_mod
-
-        for voigt_n in list(dict_fit.keys()):
-            if 'voigt' in voigt_n:
-                voigt_dict = dict_fit[voigt_n]
-                fit = self.models.config_SkewedVoigtModel(voigt_n,
-                                                voigt_dict['prefix'], 
-                                                voigt_dict['center'], 
-                                                voigt_dict['center_low_lim'], 
-                                                voigt_dict['center_high_lim'], 
-                                                voigt_dict['sigma'], 
-                                                voigt_dict['sigma_low_lim'], 
-                                                voigt_dict['sigma_high_lim'], 
-                                                voigt_dict['amplitude'], 
-                                                voigt_dict['amplitude_low_lim'], 
-                                                voigt_dict['amplitude_high_lim'],
-                                                voigt_dict['gamma'], 
-                                                voigt_dict['skew_parameter'], 
-                                                pars, 
-                                                vary_gamma=fit_gamma)
-                mod = mod + fit
-        
-        return mod, pars
-    
     def _fit_n2(self, energy, intensity, dict_fit, fit_gamma=False, print_fit_results=False):
         """
-        
+        Performs fitting on N2 spectra using the specified model and parameters.
+
+        Parameters:
+            energy (np.array): Array of energy values for the spectral data.
+            intensity (np.array): Array of intensity values for the spectral data.
+            dict_fit (dict): Dictionary containing fit parameters and model configurations.
+            fit_gamma (bool): Flag to indicate whether the gamma parameter should be fitted, defaults to False.
+            print_fit_results (bool): Flag to indicate whether to print the fit results, defaults to False.
+
+        Returns:
+            ModelResult: The result of the fit containing fit parameters and statistical data.
         """
         norm = np.max(intensity)
         intensity = intensity/norm
 
-        mod, pars = self.make_model(dict_fit, fit_gamma=fit_gamma)
+        mod, pars = self.model.make_model(dict_fit, fit_gamma=fit_gamma)
 
             
         out = mod.fit(intensity, pars, x=energy)
@@ -136,6 +110,18 @@ class N2_fit:
         return out
     
     def plot_initial_guess(self, energy, intensity, mod, pars):
+        """
+        Plots the initial guess of the fit against the actual data.
+
+        Parameters:
+            energy (np.array): Array of energy values for the spectral data.
+            intensity (np.array): Array of normalized intensity values for the spectral data.
+            mod (Model): The model used for the fit.
+            pars (Parameters): Parameters used for the initial guess in the fit.
+
+        Displays:
+            A plot showing the initial guess of the fit overlaid on the actual data points.
+        """
         norm = np.max(intensity)
         intensity = intensity/norm
         energy_plot = np.arange(energy[0], energy[-1], .001)
@@ -149,6 +135,22 @@ class N2_fit:
         
 
     def plot_fit(self, title, energy, intensity, out, fit_results, save_results=False, show_results=True):
+        """
+        Plots the spectral fitting results including the original data, the fit, initial guesses, and residuals.
+
+        Parameters:
+            title (str): Title of the plot, usually derived from the data set name.
+            energy (np.array): The energy values corresponding to the spectral data.
+            intensity (np.array): The intensity values of the spectral data.
+            out (ModelResult): The fitting result object from lmfit.
+            fit_results (dict): Dictionary containing additional fit results like residuals and metrics.
+            save_results (bool or str): If a string is provided, it specifies the path where the plot will be saved.
+            show_results (bool): Flag to display the plot interactively.
+
+        Displays:
+            A multi-panel plot with the top panel showing the data and fit, a middle panel showing residuals,
+            and a bottom panel showing residuals vs. fitted values.
+        """
         norm = np.max(intensity)
         intensity = intensity / norm
 
@@ -243,63 +245,20 @@ class N2_fit:
             plt.show()
 
 
-    def get_initial_guess(self,energy,intensity,n_peaks=5, gamma=0.0565, energy_first_peak='auto'):
-        # normalize intensity
-        norm = np.max(intensity)
-        intensity = intensity/norm
-        sigma_g     = 0.01
-        amp_mf      = 1.3  #scaling value for minimal amplitude
-        gamma_min   = 0
-        fwhm_g      = 2.355*sigma_g
-        lin_slope   = 0
-        sigma_g_min = 0
-        sigma_g_max = np.inf
-        center_scale_factor = 2
-        intercept = np.average(intensity[0:3])
-        differences = np.diff(self.theoretical_centers)
-
-        guess = {}
-        for index in range(1, n_peaks+1):
-            if energy_first_peak == 'auto' and index ==1:
-                vc, vc_intensity, argmax = find_first_max(energy,intensity, fwhm_g)
-                vc, vc_intensity, argmax = find_max_around_theoretical(energy, intensity-intercept, vc, fwhm_g*4)
-                vc_intensity = calculate_skewed_voigt_amplitude(vc, sigma_g, gamma, 0, vc_intensity)
-            else:
-                vc, vc_intensity, argmax = find_max_around_theoretical(energy, intensity-intercept, vc+differences[index-1], fwhm_g*4)
-                vc_intensity = calculate_skewed_voigt_amplitude(vc, sigma_g, gamma, 0, vc_intensity)
-
-            
-            guess[f'vc{index}'] = vc 
-            guess[f'amp{index}']  = vc_intensity
-        
-        dict_fit = {}
-        for index, peak_number in enumerate(range(1, n_peaks+1)):
-            model_name = f'voigt{peak_number}'
-            prefix = f'v{peak_number}_'
-            center = guess[f'vc{peak_number}']
-            amplitude = guess[f'amp{peak_number}']
-            dict_fit[model_name] = {
-                'prefix': prefix, 
-                'center':center, 
-                'center_low_lim':center - fwhm_g/center_scale_factor, 
-                'center_high_lim':center + fwhm_g/center_scale_factor, 
-                'sigma':sigma_g, 'sigma_low_lim':sigma_g_min, 'sigma_high_lim':sigma_g_max,
-                'amplitude':amplitude, 'amplitude_low_lim':amplitude / amp_mf, 
-                'amplitude_high_lim':amplitude*amp_mf, 
-                'gamma': gamma, 'gamma_low_lim':gamma_min, 'skew_parameter':0.0
-            }
-        
-        # guess the slope
-        initial_avg_x = np.mean(energy[:3])
-        initial_avg_y = np.mean(intensity[:3])
-        final_avg_x = np.mean(energy[-3:])
-        final_avg_y = np.mean(intensity[-3:])
-        lin_slope = (final_avg_y - initial_avg_y) / (final_avg_x - initial_avg_x)
-        dict_fit['linear'] = {'slope':lin_slope, 'intercept':intercept}
-        
-        return dict_fit
-
     def analyze_fit_results(self, energy, intensity, fit, n_peaks):
+        """
+        Analyzes the fitting results to extract key performance metrics such as resolving power and peak ratios.
+
+        Parameters:
+            energy (np.array): Array of energy values used in the fit.
+            intensity (np.array): Array of measured intensity values used in the fit.
+            fit (ModelResult): The fitting result object from lmfit.
+            n_peaks (int): The number of peaks considered in the fit.
+
+        Returns:
+            dict: A dictionary containing the calculated metrics such as Lorentzian width, Gaussian width, 
+                    resolving power from fit, and ratios of valley to peak intensities.
+        """
         fit_results = {}
         
         gamma = fit.params['v1_gamma'].value
@@ -325,19 +284,48 @@ class N2_fit:
         return fit_results
         
 
+    def get_initial_guess(self, scan, n_peaks=5,gamma=0.057, print_initial_guess=False):
+        energy, intensity  = self._retrieve_spectra(scan)
+        dict_fit = self.model.get_initial_guess(energy,intensity,
+                                                self.theoretical_centers,
+                                                self.theoretical_intensities,
+                                                n_peaks, gamma=gamma)
+        if print_initial_guess:
+            pprint(dict_fit)
+
+        return dict_fit
 
     def fit_n2(self, scan, dict_fit=None, n_peaks=5, 
                plot_initial_guess=False, print_fit_results=False, 
                save_results=False, show_results=True, gamma=0.057):
+        """
+        Orchestrates the fitting process for N2 spectral data, including retrieving data, performing the fit,
+        analyzing results, and plotting.
+
+        Parameters:
+            scan (str): Path to the scan file or database identifier.
+            dict_fit (dict, optional): Predefined fitting parameters. If None, defaults are used.
+            n_peaks (int): Number of peaks to fit.
+            plot_initial_guess (bool): If True, plots the initial guesses.
+            print_fit_results (bool): If True, prints the fit report.
+            save_results (bool or str): If True or a path is provided, saves the fit results to a JSON file.
+            show_results (bool): If True, displays the plot.
+            gamma (float): Gamma value for fitting, defaults to 0.057.
+
+        Effects:
+            Performs the fit, saves results, and optionally displays plots.
+        """
         print(f'Starting the fit for {scan}')
         if save_results:
             if not os.path.exists(save_results):
                 os.makedirs(save_results)
-        energy, intensity  = self.retrieve_spectra(scan)
+        energy, intensity  = self._retrieve_spectra(scan)
         if dict_fit is None:
-            dict_fit = self.get_initial_guess(energy,intensity, n_peaks, gamma=gamma)
+            dict_fit = self.model.get_initial_guess(energy,intensity, self.theoretical_centers,
+                                                    self.theoretical_intensities, 
+                                                    n_peaks, gamma=gamma)
         
-        model, parameters = self.make_model(dict_fit)
+        model, parameters = self.model.make_model(dict_fit)
         
         if plot_initial_guess:
             self.plot_initial_guess(energy, intensity, model, parameters)
@@ -360,22 +348,14 @@ class N2_fit:
         
     def _print_fit_results(self, fit_results):
         """
-        Print the fitting results, including resolving power and peak ratios, in a tabular format using string formatting.
-        Handles cases where minimum and maximum values might not be provided.
+        Prints the fitting results in a formatted manner to summarize the key metrics such as resolving power and ratios.
 
         Parameters:
-        - sigma: Gaussian sigma from the fit.
-        - gamma: Lorentzian gamma from the fit.
-        - sigma_min: Minimum Gaussian sigma used in fitting, if provided.
-        - sigma_max: Maximum Gaussian sigma used in fitting, if provided.
-        - gamma_min: Minimum Lorentzian gamma used in fitting, if provided.
-        - gamma_max: Maximum Lorentzian gamma used in fitting, if provided.
-        - center: Center of the first peak.
-        - vp_ratio: Valley/peak ratio from the fit.
-        - vp_ratio_min: Minimum valley/peak ratio, if computed.
-        - vp_ratio_max: Maximum valley/peak ratio, if computed.
+            fit_results (dict): A dictionary containing the results and metrics from the fitting process.
+
+        Outputs:
+            Prints formatted text summarizing the fit results.
         """
- 
         print('Results Summary:\n')
         print(f"{'Lorentzian [meV]':<20}{format_val(fit_results['fwhm_l']):>10}")
         print('-' * 50)
@@ -405,3 +385,18 @@ class N2_fit:
 
 
 
+
+
+
+    # A class to fit the N2 spectra and return the RP and the 
+    # 1st valley over 3rd peak ratio
+    
+    # instantiate with 
+    #   from .base import *
+    #   from bessyii.plans.n2fit import N2_fit
+    #   N2fit_class = N2_fit(db)
+    #   fit_n2 = N2fit_class.fit_n2
+
+    # then use with:
+    
+    #   fit_n2(identifier,...)

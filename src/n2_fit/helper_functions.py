@@ -3,7 +3,6 @@ import pandas as pd
 
 from scipy.special import erf
 from scipy.special import wofz
-from IPython import get_ipython
 
 def convert_to_json_serializable(data):
     if isinstance(data, dict):
@@ -95,6 +94,54 @@ def find_nearest_idx(array, value):
     array = np.asarray(array)
     idx = (np.abs(array - value)).argmin()
     return idx
+
+def evaluate_line(x, slope, intercept):
+    """
+    Evaluates the y-value of a linear equation given x, slope, and intercept.
+
+    Parameters:
+    - x (float): The x-coordinate at which to evaluate the line.
+    - slope (float): The slope of the line.
+    - intercept (float): The y-intercept of the line.
+
+    Returns:
+    - y (float): The computed y-value corresponding to the given x.
+
+    Example:
+    Given the line equation y = 2x + 1, calling evaluate_line(2, 2, 1) will return 5.
+    """
+    y = slope * x + intercept
+    return y
+
+def estimate_line_parameters(x_points, y_points):
+    """
+    Estimates the slope and y-intercept of a line given two points.
+
+    Parameters:
+    - x_points (list or array): A list or array containing two x-coordinates.
+    - y_points (list or array): A list or array containing two y-coordinates.
+
+    Returns:
+    - slope (float): The estimated slope of the line.
+    - intercept (float): The estimated y-intercept of the line.
+    
+    Raises:
+    - ValueError: If the lists or arrays do not contain exactly two elements.
+    """
+    if len(x_points) != 2 or len(y_points) != 2:
+        raise ValueError("Exactly two x and two y points are required to estimate line parameters.")
+    
+    # Calculate the slope (m = (y2 - y1) / (x2 - x1))
+    delta_x = x_points[1] - x_points[0]
+    delta_y = y_points[1] - y_points[0]
+    if delta_x == 0:
+        raise ValueError("Delta x cannot be zero for slope calculation.")
+    slope = delta_y / delta_x
+    
+    # Calculate the intercept (b = y - mx)
+    intercept = y_points[0] - slope * x_points[0]
+    
+    return slope, intercept
 
 
 def calculate_skewed_voigt_amplitude(center, sigma, gamma, skew, desired_peak_intensity):
