@@ -5,7 +5,7 @@ import json
 from pprint import pprint
 
 
-from .models import N2SkewedVoigtModel
+from .models import N2SkewedVoigtModel, N2SkewedVoigtModelNoLine
 from .helper_functions import remove_neg_values
 from .helper_functions import extract_bandwidth_and_rp, extract_RP_ratio
 from .helper_functions import find_closest_fwhm, format_val, convert_to_json_serializable
@@ -26,7 +26,7 @@ class N2_fit:
         theoretical_intensities (np.array): Theoretical intensities of peaks at the theoretical centers.
         model (object): An instance of a modeling class (e.g., N2SkewedVoigtModel) for spectral fitting.
     """
-    def __init__(self, model:str='SkewedVoigt', db=None):
+    def __init__(self, db=None):
         """
         Initializes the N2_fit class with a specified model and database connection.
 
@@ -47,11 +47,7 @@ class N2_fit:
         self.first_peak = 400.76
         self.theoretical_intensities=np.array([1,0.9750,0.5598,0.2443,
                                             0.0959,0.0329,0.0110,0.0027])
-        if model == 'SkewedVoigt':
-            self.model = N2SkewedVoigtModel()
-        else:
-            raise NotImplemented('No other Model is Implemented')
-        
+
     def _retrieve_spectra(self, identifier, motor=None, detector=None):
         """
         Retrieves spectral data based on the provided identifier, motor, and detector names.
@@ -297,7 +293,8 @@ class N2_fit:
 
     def fit_n2(self, scan, dict_fit=None, n_peaks=5, 
                plot_initial_guess=False, print_fit_results=False, 
-               save_results=False, show_results=True, gamma=0.057):
+               save_results=False, show_results=True, gamma=0.057, 
+               model:str='SkewedVoigt'):
         """
         Orchestrates the fitting process for N2 spectral data, including retrieving data, performing the fit,
         analyzing results, and plotting.
@@ -315,6 +312,13 @@ class N2_fit:
         Effects:
             Performs the fit, saves results, and optionally displays plots.
         """
+
+        if model == 'SkewedVoigt':
+            self.model = N2SkewedVoigtModel()
+        else:
+            raise NotImplemented('No other Model is Implemented')
+        
+
         print(f'Starting the fit for {scan}')
         if save_results:
             if not os.path.exists(save_results):
@@ -345,7 +349,67 @@ class N2_fit:
 
         self._print_fit_results(fit_results)
         self.plot_fit(title, energy, intensity, out, fit_results, save_results=save_results, show_results=show_results)
+
+    def fit_n2_3peaks(self, scan, dict_fit=None, n_peaks=5, 
+               plot_initial_guess=False, print_fit_results=False, 
+               save_results=False, show_results=True, gamma=0.057, 
+               model:str='SkewedVoigt'):
+        """
+        Orchestrates the fitting process for N2 spectral data, including retrieving data, performing the fit,
+        analyzing results, and plotting.
+
+        Parameters:
+            scan (str): Path to the scan file or database identifier.
+            dict_fit (dict, optional): Predefined fitting parameters. If None, defaults are used.
+            n_peaks (int): Number of peaks to fit.
+            plot_initial_guess (bool): If True, plots the initial guesses.
+            print_fit_results (bool): If True, prints the fit report.
+            save_results (bool or str): If True or a path is provided, saves the fit results to a JSON file.
+            show_results (bool): If True, displays the plot.
+            gamma (float): Gamma value for fitting, defaults to 0.057.
+
+        Effects:
+            Performs the fit, saves results, and optionally displays plots.
+        """
+
+        if model == 'SkewedVoigt':
+            self.model = N2SkewedVoigtModelNoLine()
+        else:
+            raise NotImplemented('No other Model is Implemented')
         
+
+        print(f'Starting the fit for {scan}')
+        if save_results:
+            if not os.path.exists(save_results):
+                os.makedirs(save_results)
+        energy, intensity  = self._retrieve_spectra(scan)
+        intensity = intensity-np.min(intensity)
+        if dict_fit is None:
+            dict_fit = self.model.get_initial_guess(energy,intensity, self.theoretical_centers,
+                                                    self.theoretical_intensities, 
+                                                    n_peaks, gamma=gamma)
+        
+        model, parameters = self.model.make_model(dict_fit)
+        
+        if plot_initial_guess:
+            self.plot_initial_guess(energy, intensity, model, parameters)
+
+        out = self._fit_n2(energy,intensity, dict_fit, print_fit_results=print_fit_results)
+        fit_results = self.analyze_fit_results(energy, 
+                                                intensity, 
+                                                out,
+                                                n_peaks=n_peaks)
+        base_name = os.path.basename(scan)
+        title = os.path.splitext(base_name)[0]
+        if save_results:
+            json_ready_results = convert_to_json_serializable(fit_results)
+            analysis_save_path = os.path.join(save_results, f'{title}.json')
+            with open(analysis_save_path, 'w') as json_file:
+                json.dump(json_ready_results, json_file, indent=4)
+
+        self._print_fit_results(fit_results)
+        self.plot_fit(title, energy, intensity, out, fit_results, save_results=save_results, show_results=show_results)
+       
     def _print_fit_results(self, fit_results):
         """
         Prints the fitting results in a formatted manner to summarize the key metrics such as resolving power and ratios.

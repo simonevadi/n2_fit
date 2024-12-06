@@ -325,12 +325,20 @@ def extract_RP_ratio(x, y, fit):
 
     # Find the minimum intensity (valley) between cen_v1 and cen_v2
     first_valley_intensity = np.min(intensity_fine[idx_v1:idx_v2])
+    first_valley_intensity_arg = np.argmin(intensity_fine[idx_v1:idx_v2])
 
     # Get the intensity (peak) at cen_v3
     peak_v3_intensity = intensity_fine[idx_v3]
 
+    slope = params['lin_slope']
+    intercept = params['lin_intercept']
+    valley_line = evaluate_line(first_valley_intensity_arg, slope, intercept)
+    peak_line = evaluate_line(idx_v3, slope, intercept)
+    
+
+
     # Calculate the valley-to-peak ratio
-    vp_ratio = first_valley_intensity / peak_v3_intensity
+    vp_ratio = (first_valley_intensity-valley_line) / (peak_v3_intensity-valley_line)
 
     return vp_ratio
 
