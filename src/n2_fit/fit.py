@@ -56,7 +56,7 @@ class N2_fit:
         Returns:
             tuple: Two numpy arrays containing the motor values (x) and the detector values (y).
         """        
-        if '.' in identifier:
+        if isinstance(identifier, str) and '.' in identifier:
             dat       = np.loadtxt(identifier)
             x    = dat[:, 0]
             y = dat[:, 1]
@@ -290,7 +290,7 @@ class N2_fit:
     def fit_n2(self, scan, dict_fit=None, n_peaks=5, 
                plot_initial_guess=False, print_fit_results=False, 
                save_results=False, show_results=True, fwhm_l:float=114, 
-               model:str='SkewedVoigt'):
+               model:str='SkewedVoigt', motor=None, detector=None):
         """
         Orchestrates the fitting process for N2 spectral data, including retrieving data, performing the fit,
         analyzing results, and plotting.
@@ -319,7 +319,7 @@ class N2_fit:
         if save_results:
             if not os.path.exists(save_results):
                 os.makedirs(save_results)
-        energy, intensity  = self._retrieve_spectra(scan)
+        energy, intensity  = self._retrieve_spectra(scan, motor=motor, detector=detector)
         if dict_fit is None:
             dict_fit = self.model.get_initial_guess(energy,intensity, theoretical_centers,
                                                     theoretical_intensities, 
@@ -350,7 +350,7 @@ class N2_fit:
     def fit_n2_3peaks(self, scan, dict_fit=None, n_peaks=5, 
                plot_initial_guess=False, print_fit_results=False, 
                save_results=False, show_results=True, fwhm_l:float=114, 
-               model:str='SkewedVoigt'):
+               model:str='SkewedVoigt', motor=None, detector=None):
         """
         Orchestrates the fitting process for N2 spectral data, including retrieving data, performing the fit,
         analyzing results, and plotting.
@@ -379,7 +379,7 @@ class N2_fit:
         if save_results:
             if not os.path.exists(save_results):
                 os.makedirs(save_results)
-        energy, intensity  = self._retrieve_spectra(scan)
+        energy, intensity  = self._retrieve_spectra(scan, motor=motor, detector=detector)
         intensity = intensity-np.min(intensity)
         if dict_fit is None:
             dict_fit = self.model.get_initial_guess(energy,intensity, theoretical_centers,

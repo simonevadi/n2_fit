@@ -1,6 +1,6 @@
 [project]
 name = "n2_fit"
-version = "0.0.4"
+version = "0.0.43"
 
 authors = [
   { name="Simone Vadilonga", email="simone.vadilonga@helmholtz-berlin.de" },
