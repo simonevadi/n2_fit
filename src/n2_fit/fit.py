@@ -263,10 +263,13 @@ class N2_fit:
         fit_results['ratio'] = extract_RP_ratio(energy, intensity, fit)
         fit_results['vc1'] = fit.params['v1_center'].value
         fit_results['energy_shift'] = fit_results['vc1'] - first_peak
-        
-        fwhm_g_rp = find_closest_fwhm('../tables/skewedVoigt.csv',
+        script_dir = os.path.dirname(__file__)
+        two_levels_up = os.path.dirname(os.path.dirname(script_dir))
+        table_path = os.path.join(two_levels_up, 'tables/skewedVoigt.csv')
+        fwhm_g_rp = find_closest_fwhm(table_path,
                                      fit_results['ratio'],
                                      fit_results['fwhm_l'])
+        
         
         fit_results['rp_from_table'] = int(first_peak/(fwhm_g_rp/1000)) 
         
@@ -336,8 +339,11 @@ class N2_fit:
                                                 intensity, 
                                                 out,
                                                 n_peaks=n_peaks)
-        base_name = os.path.basename(scan)
-        title = os.path.splitext(base_name)[0]
+        if isinstance(scan, int):
+            title = f'scan_{scan}'
+        else:
+            base_name = os.path.basename(scan)
+            title = os.path.splitext(base_name)[0]
         if save_results:
             json_ready_results = convert_to_json_serializable(fit_results)
             analysis_save_path = os.path.join(save_results, f'{title}.json')
