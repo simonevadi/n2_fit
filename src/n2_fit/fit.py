@@ -11,6 +11,8 @@ from .helper_functions import extract_bandwidth_and_rp, extract_RP_ratio
 from .helper_functions import find_closest_fwhm, format_val, convert_to_json_serializable
 from .helper_functions import calculate_rms
 
+from .n2_peaks_parameters import theoretical_centers, theoretical_intensities, voigt_intensities, first_peak
+
 class N2_fit:
     """
     A class dedicated to fitting N2 spectra, calculating resolving power (RP), and analyzing the ratio between the 
@@ -41,12 +43,6 @@ class N2_fit:
         self.tiny = 1.0e-15
         self.s2   = np.sqrt(2)
         self.s2pi = np.sqrt(2*np.pi)
-        self.theoretical_centers=np.array([400.880,401.114,401.341,
-                                           401.563,401.782,401.997,
-                                           402.208,402.414])
-        self.first_peak = 400.76
-        self.theoretical_intensities=np.array([1,0.9750,0.5598,0.2443,
-                                            0.0959,0.0329,0.0110,0.0027])
 
     def _retrieve_spectra(self, identifier, motor=None, detector=None):
         """
@@ -266,13 +262,13 @@ class N2_fit:
 
         fit_results['ratio'] = extract_RP_ratio(energy, intensity, fit)
         fit_results['vc1'] = fit.params['v1_center'].value
-        fit_results['energy_shift'] = fit_results['vc1'] - self.first_peak
+        fit_results['energy_shift'] = fit_results['vc1'] - first_peak
         
         fwhm_g_rp = find_closest_fwhm('../tables/skewedVoigt.csv',
                                      fit_results['ratio'],
                                      fit_results['fwhm_l'])
         
-        fit_results['rp_from_table'] = int(self.first_peak/(fwhm_g_rp/1000)) 
+        fit_results['rp_from_table'] = int(first_peak/(fwhm_g_rp/1000)) 
         
         fit_results['residuals'] = intensity - fit.best_fit
         fit_results['rms'] = calculate_rms(fit_results['residuals'])
@@ -283,8 +279,8 @@ class N2_fit:
     def get_initial_guess(self, scan, n_peaks=5,gamma=0.057, print_initial_guess=False):
         energy, intensity  = self._retrieve_spectra(scan)
         dict_fit = self.model.get_initial_guess(energy,intensity,
-                                                self.theoretical_centers,
-                                                self.theoretical_intensities,
+                                                theoretical_centers,
+                                                theoretical_intensities,
                                                 n_peaks, gamma=gamma)
         if print_initial_guess:
             pprint(dict_fit)
@@ -293,7 +289,7 @@ class N2_fit:
 
     def fit_n2(self, scan, dict_fit=None, n_peaks=5, 
                plot_initial_guess=False, print_fit_results=False, 
-               save_results=False, show_results=True, gamma=0.057, 
+               save_results=False, show_results=True, fwhm_l:float=114, 
                model:str='SkewedVoigt'):
         """
         Orchestrates the fitting process for N2 spectral data, including retrieving data, performing the fit,
@@ -312,7 +308,6 @@ class N2_fit:
         Effects:
             Performs the fit, saves results, and optionally displays plots.
         """
-
         if model == 'SkewedVoigt':
             self.model = N2SkewedVoigtModel()
         else:
@@ -320,13 +315,14 @@ class N2_fit:
         
 
         print(f'Starting the fit for {scan}')
+        gamma = fwhm_l/2000
         if save_results:
             if not os.path.exists(save_results):
                 os.makedirs(save_results)
         energy, intensity  = self._retrieve_spectra(scan)
         if dict_fit is None:
-            dict_fit = self.model.get_initial_guess(energy,intensity, self.theoretical_centers,
-                                                    self.theoretical_intensities, 
+            dict_fit = self.model.get_initial_guess(energy,intensity, theoretical_centers,
+                                                    theoretical_intensities, 
                                                     n_peaks, gamma=gamma)
         
         model, parameters = self.model.make_model(dict_fit)
@@ -335,6 +331,7 @@ class N2_fit:
             self.plot_initial_guess(energy, intensity, model, parameters)
 
         out = self._fit_n2(energy,intensity, dict_fit, print_fit_results=print_fit_results)
+        
         fit_results = self.analyze_fit_results(energy, 
                                                 intensity, 
                                                 out,
@@ -352,7 +349,7 @@ class N2_fit:
 
     def fit_n2_3peaks(self, scan, dict_fit=None, n_peaks=5, 
                plot_initial_guess=False, print_fit_results=False, 
-               save_results=False, show_results=True, gamma=0.057, 
+               save_results=False, show_results=True, fwhm_l:float=114, 
                model:str='SkewedVoigt'):
         """
         Orchestrates the fitting process for N2 spectral data, including retrieving data, performing the fit,
@@ -377,16 +374,16 @@ class N2_fit:
         else:
             raise NotImplemented('No other Model is Implemented')
         
-
         print(f'Starting the fit for {scan}')
+        gamma = fwhm_l/2000
         if save_results:
             if not os.path.exists(save_results):
                 os.makedirs(save_results)
         energy, intensity  = self._retrieve_spectra(scan)
         intensity = intensity-np.min(intensity)
         if dict_fit is None:
-            dict_fit = self.model.get_initial_guess(energy,intensity, self.theoretical_centers,
-                                                    self.theoretical_intensities, 
+            dict_fit = self.model.get_initial_guess(energy,intensity, theoretical_centers,
+                                                    theoretical_intensities, 
                                                     n_peaks, gamma=gamma)
         
         model, parameters = self.model.make_model(dict_fit)
