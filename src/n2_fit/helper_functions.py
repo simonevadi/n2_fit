@@ -258,7 +258,7 @@ def find_first_max(x,y,fwhm):
             the position of the first max in x
     """
     step    = x[1]-x[0]
-    ind     = int(fwhm/step/1) 
+    ind     = int(fwhm/step/1) if int(fwhm/step/1)>0 else 1
     n_steps = int(x.shape[0]/ind)
     for i in range(n_steps):
         if i == 0:
@@ -322,10 +322,12 @@ def extract_RP_ratio(x, y, fit):
     idx_v1 = np.argmin(np.abs(energy_fine - cen_v1))
     idx_v2 = np.argmin(np.abs(energy_fine - cen_v2))
     idx_v3 = np.argmin(np.abs(energy_fine - cen_v3))
+    p3_x = energy_fine[idx_v3]
 
     # Find the minimum intensity (valley) between cen_v1 and cen_v2
     first_valley_intensity = np.min(intensity_fine[idx_v1:idx_v2])
-    first_valley_intensity_arg = np.argmin(intensity_fine[idx_v1:idx_v2])
+    first_valley_intensity_arg = idx_v1+np.argmin(intensity_fine[idx_v1:idx_v2])
+    v1_x = energy_fine[first_valley_intensity_arg]
 
     # Get the intensity (peak) at cen_v3
     peak_v3_intensity = intensity_fine[idx_v3]
@@ -334,13 +336,19 @@ def extract_RP_ratio(x, y, fit):
     intercept = params['lin_intercept']
     valley_line = evaluate_line(first_valley_intensity_arg, slope, intercept)
     peak_line = evaluate_line(idx_v3, slope, intercept)
+    # print(f'energy_fine {energy_fine[0]}-{energy_fine[-1]}')
+    # print(f'first_valley_intensity_arg {first_valley_intensity_arg}')
+    # print('slope and intercept line', slope, intercept)
+    # print('valley and peak line', valley_line, peak_line)
     
 
 
     # Calculate the valley-to-peak ratio
-    vp_ratio = (first_valley_intensity-valley_line) / (peak_v3_intensity-valley_line)
+    vp_ratio = (first_valley_intensity-valley_line) / (peak_v3_intensity-peak_line)
+    vp = {'valley':(v1_x, first_valley_intensity), 
+          'peak':(p3_x, peak_v3_intensity)}
 
-    return vp_ratio
+    return vp_ratio, vp
 
 def extract_RP_ratio_for_table(x, y, params):
     """
