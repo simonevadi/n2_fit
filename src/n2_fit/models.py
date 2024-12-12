@@ -68,7 +68,7 @@ class N2SkewedVoigtModel:
 
         lin_mod = LinearModel(prefix='lin_')
         pars.update(lin_mod.make_params())
-        pars['lin_slope'].set(value=dict_fit['linear']['slope'], min=0)
+        pars['lin_slope'].set(value=dict_fit['linear']['slope'], max=0)
         pars['lin_intercept'].set(value=dict_fit['linear']['intercept'])
         mod = lin_mod
 
@@ -147,6 +147,8 @@ class N2SkewedVoigtModel:
             [0, energy.shape[0]],  # x-coordinates
             [np.average(intensity[0:3]), np.average(intensity[-3:])]  # y-values
         )
+        if lin_slope<0:
+            lin_slope = 0
         guess = {}
         for index in range(1, n_peaks+1):
             if energy_first_peak == 'auto' and index ==1:
@@ -183,11 +185,7 @@ class N2SkewedVoigtModel:
             }
         
         # guess the slope
-        initial_avg_x = np.mean(energy[:3])
-        initial_avg_y = np.mean(intensity[:3])
-        final_avg_x = np.mean(energy[-3:])
-        final_avg_y = np.mean(intensity[-3:])
-        lin_slope = (final_avg_y - initial_avg_y) / (final_avg_x - initial_avg_x)
+
         dict_fit['linear'] = {'slope':lin_slope, 'intercept':intercept}
         
         return dict_fit
@@ -332,8 +330,10 @@ class N2SkewedVoigtModelNoLine():
         differences = np.diff(theoretical_centers)
         lin_slope, intercept = estimate_line_parameters(
             [0, energy.shape[0]],  # x-coordinates
-            [np.average(intensity[0:3]), np.average(intensity[-3:])]  # y-values
+            [np.average(intensity[1:4]), np.average(intensity[-3:])]  # y-values
         )
+        if lin_slope<0:
+            lin_slope = 0
         guess = {}
         for index in range(1, n_peaks+1):
             if energy_first_peak == 'auto' and index ==1:
@@ -370,11 +370,6 @@ class N2SkewedVoigtModelNoLine():
             }
         
         # guess the slope
-        initial_avg_x = np.mean(energy[:3])
-        initial_avg_y = np.mean(intensity[:3])
-        final_avg_x = np.mean(energy[-3:])
-        final_avg_y = np.mean(intensity[-3:])
-        lin_slope = (final_avg_y - initial_avg_y) / (final_avg_x - initial_avg_x)
+
         dict_fit['linear'] = {'slope':lin_slope, 'intercept':intercept}
-        
         return dict_fit

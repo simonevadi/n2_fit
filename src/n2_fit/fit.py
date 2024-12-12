@@ -56,7 +56,7 @@ class N2_fit:
         Returns:
             tuple: Two numpy arrays containing the motor values (x) and the detector values (y).
         """        
-        if '.' in identifier:
+        if isinstance(identifier, str) and '.' in identifier:
             dat       = np.loadtxt(identifier)
             x    = dat[:, 0]
             y = dat[:, 1]
@@ -126,7 +126,7 @@ class N2_fit:
         plt.show()
         
 
-    def plot_fit(self, title, energy, intensity, out, fit_results, save_results=False, show_results=True):
+    def plot_fit(self, title, energy, intensity, out, fit_results, save_results=False, show_results=True, close_plot=False):
         """
         Plots the spectral fitting results including the original data, the fit, initial guesses, and residuals.
 
@@ -179,6 +179,12 @@ class N2_fit:
 
         # Linear Component
         ax.plot(energy_plot, comps['lin_'], '--', label='Linear component')
+
+        # valley and peak positions
+        ax.scatter(fit_results['vp_positions']['valley'][0], 
+                   fit_results['vp_positions']['valley'][1], c='red')
+        ax.scatter(fit_results['vp_positions']['peak'][0], 
+                   fit_results['vp_positions']['peak'][1], c='red')
 
 
         
@@ -235,6 +241,8 @@ class N2_fit:
             plt.savefig(save_path)
         if show_results:
             plt.show()
+        if close_plot:
+            plt.close()
 
 
     def analyze_fit_results(self, energy, intensity, fit, n_peaks):
@@ -260,13 +268,16 @@ class N2_fit:
         fit_results['fwhm_g'] = fwhm_g
         fit_results['rp_from_fit'] = rp
 
-        fit_results['ratio'] = extract_RP_ratio(energy, intensity, fit)
+        fit_results['ratio'], fit_results['vp_positions'] = extract_RP_ratio(energy, intensity, fit)
         fit_results['vc1'] = fit.params['v1_center'].value
         fit_results['energy_shift'] = fit_results['vc1'] - first_peak
-        
-        fwhm_g_rp = find_closest_fwhm('../tables/skewedVoigt.csv',
+        script_dir = os.path.dirname(__file__)
+        two_levels_up = os.path.dirname(os.path.dirname(script_dir))
+        table_path = os.path.join(two_levels_up, 'tables/skewedVoigt.csv')
+        fwhm_g_rp = find_closest_fwhm(table_path,
                                      fit_results['ratio'],
                                      fit_results['fwhm_l'])
+        
         
         fit_results['rp_from_table'] = int(first_peak/(fwhm_g_rp/1000)) 
         
@@ -290,7 +301,8 @@ class N2_fit:
     def fit_n2(self, scan, dict_fit=None, n_peaks=5, 
                plot_initial_guess=False, print_fit_results=False, 
                save_results=False, show_results=True, fwhm_l:float=114, 
-               model:str='SkewedVoigt'):
+               model:str='SkewedVoigt', motor=None, detector=None, 
+               summary=True, close_plot=False):
         """
         Orchestrates the fitting process for N2 spectral data, including retrieving data, performing the fit,
         analyzing results, and plotting.
@@ -319,12 +331,11 @@ class N2_fit:
         if save_results:
             if not os.path.exists(save_results):
                 os.makedirs(save_results)
-        energy, intensity  = self._retrieve_spectra(scan)
+        energy, intensity  = self._retrieve_spectra(scan, motor=motor, detector=detector)
         if dict_fit is None:
             dict_fit = self.model.get_initial_guess(energy,intensity, theoretical_centers,
                                                     theoretical_intensities, 
-                                                    n_peaks, gamma=gamma)
-        
+                                                    n_peaks, gamma=gamma)        
         model, parameters = self.model.make_model(dict_fit)
         
         if plot_initial_guess:
@@ -336,21 +347,28 @@ class N2_fit:
                                                 intensity, 
                                                 out,
                                                 n_peaks=n_peaks)
-        base_name = os.path.basename(scan)
-        title = os.path.splitext(base_name)[0]
+        if isinstance(scan, int):
+            title = f'scan_{scan}'
+        else:
+            base_name = os.path.basename(scan)
+            title = os.path.splitext(base_name)[0]
         if save_results:
             json_ready_results = convert_to_json_serializable(fit_results)
             analysis_save_path = os.path.join(save_results, f'{title}.json')
             with open(analysis_save_path, 'w') as json_file:
                 json.dump(json_ready_results, json_file, indent=4)
 
-        self._print_fit_results(fit_results)
-        self.plot_fit(title, energy, intensity, out, fit_results, save_results=save_results, show_results=show_results)
-
+        if summary:
+            self._print_fit_results(fit_results)
+        self.plot_fit(title, energy, intensity, out, fit_results,
+                      save_results=save_results, show_results=show_results,
+                      close_plot=close_plot)
+        return fit_results
+    
     def fit_n2_3peaks(self, scan, dict_fit=None, n_peaks=5, 
                plot_initial_guess=False, print_fit_results=False, 
                save_results=False, show_results=True, fwhm_l:float=114, 
-               model:str='SkewedVoigt'):
+               model:str='SkewedVoigt', motor=None, detector=None):
         """
         Orchestrates the fitting process for N2 spectral data, including retrieving data, performing the fit,
         analyzing results, and plotting.
@@ -379,7 +397,7 @@ class N2_fit:
         if save_results:
             if not os.path.exists(save_results):
                 os.makedirs(save_results)
-        energy, intensity  = self._retrieve_spectra(scan)
+        energy, intensity  = self._retrieve_spectra(scan, motor=motor, detector=detector)
         intensity = intensity-np.min(intensity)
         if dict_fit is None:
             dict_fit = self.model.get_initial_guess(energy,intensity, theoretical_centers,
