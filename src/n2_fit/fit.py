@@ -5,13 +5,13 @@ import json
 from pprint import pprint
 
 
-from .models import N2SkewedVoigtModel, N2SkewedVoigtModelNoLine
+from .models import N2SkewedVoigtModel
 from .helper_functions import remove_neg_values
 from .helper_functions import extract_bandwidth_and_rp, extract_RP_ratio
 from .helper_functions import find_closest_fwhm, format_val, convert_to_json_serializable
-from .helper_functions import calculate_rms
+from .helper_functions import calculate_rms, clean_data
 
-from .n2_peaks_parameters import theoretical_centers, theoretical_intensities, voigt_intensities, first_peak
+from .n2_peaks_parameters import first_peak
 
 class N2_fit:
     """
@@ -30,103 +30,87 @@ class N2_fit:
     """
     def __init__(self, db=None):
         """
-        Initializes the N2_fit class with a specified model and database connection.
+        Initializes the N2_fit class.
 
-        Parameters:
-            model (str): The name of the model to use for fitting, defaults to 'SkewedVoigt'.
-            db (optional): A database connection to retrieve scan data, defaults to None.
+        Args:
+            db (optional): A database connection to retrieve scan data. Defaults to None.
 
-        Raises:
-            NotImplemented: If a model other than 'SkewedVoigt' is specified.
+        Attributes:
+            _db (database connection or None): Database connection if provided.
+            tiny (float): A small number to avoid division by zero in calculations.
+            s2 (float): Square root of 2, used in various calculations.
+            s2pi (float): Square root of 2 times pi, used in normalization.
+            theoretical_centers (np.array): Theoretical center positions for spectral peaks.
+            first_peak (float): The energy position of the first peak, used as a reference for calculations.
+            theoretical_intensities (np.array): Theoretical intensities of peaks at the theoretical centers.
+            model (object): An instance of a modeling class (e.g., N2SkewedVoigtModel) for spectral fitting.
         """
         self._db = db
         self.tiny = 1.0e-15
         self.s2   = np.sqrt(2)
         self.s2pi = np.sqrt(2*np.pi)
-
-    def _retrieve_spectra(self, identifier, motor=None, detector=None):
-        """
-        Retrieves spectral data based on the provided identifier, motor, and detector names.
-
-        Parameters:
-            identifier (str or int): Identifier for the data set, can be a file path or a database identifier.
-            motor (str, optional): Name of the motor to retrieve data from, defaults to the primary motor if not specified.
-            detector (str, optional): Name of the detector to retrieve data from, defaults to the primary detector if not specified.
-
-        Returns:
-            tuple: Two numpy arrays containing the motor values (x) and the detector values (y).
-        """        
-        if isinstance(identifier, str) and '.' in identifier:
-            dat       = np.loadtxt(identifier)
-            x    = dat[:, 0]
-            y = dat[:, 1]
-        else:
-            run       = self._db[identifier]
-            if detector == None:
-                detector  = run.metadata['start']['detectors'][0]
-            if motor == None:
-                motor = run.metadata['start']['motors'][0]
-            spectra   = run.primary.read()
-            x    = np.array(spectra[motor])
-            y = np.array(spectra[detector])
-
-            x,y = remove_neg_values(x,y)
-        return x, y
     
-    def _fit_n2(self, energy, intensity, dict_fit, fit_gamma=False, print_fit_results=False):
+    def _fit_n2(self, energy, intensity, dict_fit, print_fit_results=False):
         """
         Performs fitting on N2 spectra using the specified model and parameters.
 
-        Parameters:
+        Args:
             energy (np.array): Array of energy values for the spectral data.
             intensity (np.array): Array of intensity values for the spectral data.
             dict_fit (dict): Dictionary containing fit parameters and model configurations.
-            fit_gamma (bool): Flag to indicate whether the gamma parameter should be fitted, defaults to False.
-            print_fit_results (bool): Flag to indicate whether to print the fit results, defaults to False.
+            print_fit_results (bool, optional): Flag to indicate whether to print the fit results. Defaults to False.
 
         Returns:
             ModelResult: The result of the fit containing fit parameters and statistical data.
         """
-        norm = np.max(intensity)
-        intensity = intensity/norm
 
-        mod, pars = self.model.make_model(dict_fit, fit_gamma=fit_gamma)
+        mod, pars = self.model.make_model(dict_fit)
 
             
-        out = mod.fit(intensity, pars, x=energy)
-        delta = out.eval_uncertainty(x=energy)
+        fit = mod.fit(intensity, pars, x=energy)
         
         if print_fit_results == True:
-            print(out.fit_report(min_correl=0.5))
+            print(fit.fit_report(min_correl=0.5))
 
-        return out
+        return fit
     
-    def plot_initial_guess(self, energy, intensity, mod, pars):
+    def _plot_initial_guess(self, energy, intensity, mod, pars, norm=1):
         """
-        Plots the initial guess of the fit against the actual data.
+        Plots the spectral fitting results including the original data, the fit, initial guesses, and residuals.
 
-        Parameters:
-            energy (np.array): Array of energy values for the spectral data.
-            intensity (np.array): Array of normalized intensity values for the spectral data.
-            mod (Model): The model used for the fit.
-            pars (Parameters): Parameters used for the initial guess in the fit.
+        Args:
+            title (str): Title of the plot, usually derived from the data set name.
+            energy (np.array): The energy values corresponding to the spectral data.
+            intensity (np.array): The intensity values of the spectral data.
+            out (ModelResult): The fitting result object from lmfit.
+            fit_results (dict): Dictionary containing additional fit results like residuals and metrics.
+            intensity_norm (float, optional): Normalization factor for intensity. Defaults to 1.
+            save_results (bool or str, optional): If a string is provided, it specifies the path where the plot will be saved. Defaults to False.
+            show_results (bool, optional): If True, displays the plot interactively. Defaults to True.
+            close_plot (bool, optional): If True, closes the plot after displaying. Defaults to False.
 
         Displays:
-            A plot showing the initial guess of the fit overlaid on the actual data points.
+            A multi-panel plot with the top panel showing the data and fit, a middle panel showing residuals,
+            and a bottom panel showing residuals vs. fitted values.
         """
-        norm = np.max(intensity)
-        intensity = intensity/norm
         energy_plot = np.arange(energy[0], energy[-1], .001)
         init = mod.eval(pars, x=energy_plot)
 
         plt.rc("font", size=12,family='serif')
         fig, axes = plt.subplots(1, 1, figsize=(8.0, 16.0))
-        axes.plot(energy_plot, init, 'orange' ,label='initial guess')
-        axes.scatter(energy, intensity, label='data')
+        axes.plot(energy_plot, init*norm, 'orange' ,label='initial guess')
+        axes.scatter(energy, intensity*norm, label='data')
+
+        # Plotting individual Voigt components
+        energy_v = energy_plot
+        components = mod.eval_components(params=pars,x=energy_v)
+        for name, comp in components.items():
+            if 'v' in name:  # This condition depends on how the components are named in the model
+                axes.plot(energy_v, comp*norm, '--', label=f'{name} component')
+        axes.legend()
         plt.show()
         
-
-    def plot_fit(self, title, energy, intensity, out, fit_results, save_results=False, show_results=True, close_plot=False):
+    def _plot_fit(self, title, energy, intensity, out, fit_results, intensity_norm=1, save_results=False, show_results=True, close_plot=False):
         """
         Plots the spectral fitting results including the original data, the fit, initial guesses, and residuals.
 
@@ -143,19 +127,17 @@ class N2_fit:
             A multi-panel plot with the top panel showing the data and fit, a middle panel showing residuals,
             and a bottom panel showing residuals vs. fitted values.
         """
-        norm = np.max(intensity)
-        intensity = intensity / norm
 
         energy_plot = np.arange(energy[0], energy[-1], .001)
         plt.rc("font", size=12, family='serif')
-        fig, axs = plt.subplots(3, 1, figsize=(8.0, 16.0), gridspec_kw={'height_ratios': [3, .5, .5]})
+        fig, axs = plt.subplots(3, 1, figsize=(20.0, 40.0), gridspec_kw={'height_ratios': [3, .5, .5]})
         plt.suptitle(title)
 
         ax = axs[0]  # Upper plot for the fit and data
         # Data
-        ax.scatter(energy, intensity, label='Data', s=40)
+        ax.scatter(energy, intensity*intensity_norm, label='Data', s=40)
         # Plot initial guesses 
-        ax.plot(energy, out.init_fit, color='orange', alpha=1, linewidth=1.5, label='Initial Guess')
+        ax.plot(energy, out.init_fit*intensity_norm, color='orange', alpha=1, linewidth=1.5, label='Initial Guess')
 
         # Centers
         for i in range(1, 20):
@@ -165,7 +147,7 @@ class N2_fit:
                 continue
 
         # Fit
-        ax.plot(energy_plot, out.eval(x=energy_plot), 'r', label=f'Fit, Lorentzian: {np.round(out.params["v1_gamma"].value * 2 * 1000, 2)} meV')
+        ax.plot(energy_plot, out.eval(x=energy_plot)*intensity_norm, 'r', label=f'Fit, Lorentzian: {np.round(out.params["v1_gamma"].value * 2 * 1000, 2)} meV')
 
         # Voigt Components
         comps = out.eval_components(x=energy_plot)
@@ -173,23 +155,23 @@ class N2_fit:
             try:
                 center = np.round(out.params[f'v{i}_center'].value, 2)
                 intensity_component = np.round(out.params[f'v{i}_amplitude'].value, 2)
-                ax.plot(energy_plot, comps[f'v{i}_'] + comps['lin_'], '--', label=f'Voigt{i}: {center} meV, Intensity: {intensity_component}')
+                ax.plot(energy_plot, (comps[f'v{i}_'] + comps['lin_'])*intensity_norm, '--', label=f'Voigt{i}: {center} meV, Intensity: {intensity_component}')
             except:
                 continue
 
         # Linear Component
-        ax.plot(energy_plot, comps['lin_'], '--', label='Linear component')
+        ax.plot(energy_plot, comps['lin_']*intensity_norm, '--', label='Linear component')
 
         # valley and peak positions
         ax.scatter(fit_results['vp_positions']['valley'][0], 
-                   fit_results['vp_positions']['valley'][1], c='red')
+                   fit_results['vp_positions']['valley'][1]*intensity_norm, c='red')
         ax.scatter(fit_results['vp_positions']['peak'][0], 
-                   fit_results['vp_positions']['peak'][1], c='red')
+                   fit_results['vp_positions']['peak'][1]*intensity_norm, c='red')
 
 
         
 
-        legend = ax.legend()
+        legend = ax.legend(loc='upper right')
         # summary text
         summary_text = (
             f"{'Lorentzian [meV] '}:   {format_val(fit_results['fwhm_l']):>10}\n"
@@ -219,7 +201,7 @@ class N2_fit:
         ax2.set_ylabel('Residuals')
         ax2.legend()
 
-        # Plotting histogram of residuals
+        # Plotting residuals
         ax3 = axs[2]
         fitted_values = out.eval(x=energy)
         ax3.scatter(fitted_values, fit_results['residuals'], color='blue', alpha=0.5)
@@ -237,19 +219,18 @@ class N2_fit:
         plt.tight_layout()  # Adjust layout to make room for the suptitle
 
         if save_results:
-            save_path = os.path.join(save_results, f'{title}_lor{fit_results["fwhm_l"]}.pdf')
+            save_path = os.path.join(save_results, f'{title}_lor{fit_results["fwhm_l"]}.png')
             plt.savefig(save_path)
         if show_results:
             plt.show()
         if close_plot:
             plt.close()
 
-
-    def analyze_fit_results(self, energy, intensity, fit, n_peaks):
+    def _analyze_fit_results(self, energy, intensity, fit, n_peaks):
         """
         Analyzes the fitting results to extract key performance metrics such as resolving power and peak ratios.
 
-        Parameters:
+        Args:
             energy (np.array): Array of energy values used in the fit.
             intensity (np.array): Array of measured intensity values used in the fit.
             fit (ModelResult): The fitting result object from lmfit.
@@ -257,7 +238,7 @@ class N2_fit:
 
         Returns:
             dict: A dictionary containing the calculated metrics such as Lorentzian width, Gaussian width, 
-                    resolving power from fit, and ratios of valley to peak intensities.
+                resolving power from fit, and ratios of valley to peak intensities.
         """
         fit_results = {}
         
@@ -286,72 +267,104 @@ class N2_fit:
 
         return fit_results
         
+    def get_initial_guess(self, energy, intensity, n_peaks=5,gamma=0.057, print_initial_guess=False, 
+                          model:str='SkewedVoigt', background_model:str='offset'):
+        """
+        Generates the initial guess parameters for fitting N2 spectra.
 
-    def get_initial_guess(self, scan, n_peaks=5,gamma=0.057, print_initial_guess=False):
-        energy, intensity  = self._retrieve_spectra(scan)
+        Args:
+            energy (np.array): Array of energy values for the spectral data.
+            intensity (np.array): Array of intensity values for the spectral data.
+            n_peaks (int, optional): Number of peaks to include in the initial guess. Defaults to 5.
+            gamma (float, optional): Gamma value for fitting. Defaults to 0.057.
+            print_initial_guess (bool, optional): If True, prints the initial guess parameters. Defaults to False.
+            model (str, optional): The name of the model to use for fitting. Defaults to 'SkewedVoigt'.
+            background_model (str, optional): The type of background model to use. Defaults to 'offset'.
+
+        Returns:
+            dict: A dictionary containing the initial guess parameters for the fit.
+        """
+
+        if model == 'SkewedVoigt':
+            self.model = N2SkewedVoigtModel(background=background_model, 
+                                            fit_gamma=False)
+        else:
+            raise NotImplemented('No other Model is Implemented')
+        
         dict_fit = self.model.get_initial_guess(energy,intensity,
-                                                theoretical_centers,
-                                                theoretical_intensities,
-                                                n_peaks, gamma=gamma)
+                                        n_peaks, gamma=gamma)
         if print_initial_guess:
             pprint(dict_fit)
 
         return dict_fit
 
-    def fit_n2(self, scan, dict_fit=None, n_peaks=5, 
+    def fit_n2(self, energy, intensity, title=None, dict_fit=None, n_peaks=5, 
                plot_initial_guess=False, print_fit_results=False, 
                save_results=False, show_results=True, fwhm_l:float=114, 
-               model:str='SkewedVoigt', motor=None, detector=None, 
+               model:str='SkewedVoigt', background_model:str='linear', motor=None, detector=None, 
                summary=True, close_plot=False):
         """
         Orchestrates the fitting process for N2 spectral data, including retrieving data, performing the fit,
         analyzing results, and plotting.
 
-        Parameters:
-            scan (str): Path to the scan file or database identifier.
-            dict_fit (dict, optional): Predefined fitting parameters. If None, defaults are used.
-            n_peaks (int): Number of peaks to fit.
-            plot_initial_guess (bool): If True, plots the initial guesses.
-            print_fit_results (bool): If True, prints the fit report.
-            save_results (bool or str): If True or a path is provided, saves the fit results to a JSON file.
-            show_results (bool): If True, displays the plot.
-            gamma (float): Gamma value for fitting, defaults to 0.057.
+        Args:
+            energy (np.array): Array of energy values for the spectral data.
+            intensity (np.array): Array of intensity values for the spectral data.
+            title (str, optional): Title for the plot and saved results. Defaults to None.
+            dict_fit (dict, optional): Predefined fitting parameters. If None, initial guesses are used. Defaults to None.
+            n_peaks (int, optional): Number of peaks to fit. Defaults to 5.
+            plot_initial_guess (bool, optional): If True, plots the initial guesses. Defaults to False.
+            print_fit_results (bool, optional): If True, prints the fit report. Defaults to False.
+            save_results (bool or str, optional): If True or a path is provided, saves the fit results to a JSON file. Defaults to False.
+            show_results (bool, optional): If True, displays the plot. Defaults to True.
+            fwhm_l (float, optional): Full width at half maximum (Lorentzian) value. Defaults to 114.
+            model (str, optional): The name of the model to use for fitting. Defaults to 'SkewedVoigt'.
+            background_model (str, optional): The type of background model to use. Defaults to 'linear'.
+            motor (str, optional): Name of the motor to retrieve data from. Defaults to None.
+            detector (str, optional): Name of the detector to retrieve data from. Defaults to None.
+            summary (bool, optional): If True, prints the fit results summary. Defaults to True.
+            close_plot (bool, optional): If True, closes the plot after displaying. Defaults to False.
 
-        Effects:
-            Performs the fit, saves results, and optionally displays plots.
+        Returns:
+            tuple: A tuple containing the fit results dictionary and the fit object.
         """
         if model == 'SkewedVoigt':
-            self.model = N2SkewedVoigtModel()
+            self.model = N2SkewedVoigtModel(background=background_model, 
+                                            fit_gamma=False)
         else:
             raise NotImplemented('No other Model is Implemented')
         
 
-        print(f'Starting the fit for {scan}')
+        title = 'NotNamedData' if title is None else title
+
+        print(f'Starting the fit: {title}')
         gamma = fwhm_l/2000
         if save_results:
             if not os.path.exists(save_results):
                 os.makedirs(save_results)
-        energy, intensity  = self._retrieve_spectra(scan, motor=motor, detector=detector)
+
+            
+        energy, intensity = clean_data(energy, intensity)
+        intensity_norm = np.max(intensity)
+        intensity /= intensity_norm
+        if background_model == 'offset':
+            intensity = intensity-np.min(intensity)
         if dict_fit is None:
-            dict_fit = self.model.get_initial_guess(energy,intensity, theoretical_centers,
-                                                    theoretical_intensities, 
+            dict_fit = self.model.get_initial_guess(energy,intensity,
                                                     n_peaks, gamma=gamma)        
         model, parameters = self.model.make_model(dict_fit)
         
         if plot_initial_guess:
-            self.plot_initial_guess(energy, intensity, model, parameters)
+            self._plot_initial_guess(energy, intensity, model, parameters, norm=intensity_norm)
+            return
 
-        out = self._fit_n2(energy,intensity, dict_fit, print_fit_results=print_fit_results)
+        fit = self._fit_n2(energy,intensity, dict_fit, print_fit_results=print_fit_results)
         
-        fit_results = self.analyze_fit_results(energy, 
+        fit_results = self._analyze_fit_results(energy, 
                                                 intensity, 
-                                                out,
+                                                fit,
                                                 n_peaks=n_peaks)
-        if isinstance(scan, int):
-            title = f'scan_{scan}'
-        else:
-            base_name = os.path.basename(scan)
-            title = os.path.splitext(base_name)[0]
+
         if save_results:
             json_ready_results = convert_to_json_serializable(fit_results)
             analysis_save_path = os.path.join(save_results, f'{title}.json')
@@ -360,76 +373,48 @@ class N2_fit:
 
         if summary:
             self._print_fit_results(fit_results)
-        self.plot_fit(title, energy, intensity, out, fit_results,
+        self._plot_fit(title, energy, intensity, fit, fit_results, intensity_norm=intensity_norm,
                       save_results=save_results, show_results=show_results,
                       close_plot=close_plot)
-        return fit_results
+        return fit_results, fit
     
-    def fit_n2_3peaks(self, scan, dict_fit=None, n_peaks=5, 
+    def fit_n2_3peaks(self, energy, intensity, title=None, dict_fit=None, 
                plot_initial_guess=False, print_fit_results=False, 
                save_results=False, show_results=True, fwhm_l:float=114, 
-               model:str='SkewedVoigt', motor=None, detector=None):
+               motor=None, detector=None, summary=False):
         """
-        Orchestrates the fitting process for N2 spectral data, including retrieving data, performing the fit,
-        analyzing results, and plotting.
+        Fits the N2 spectral data with 3 peaks using the fit_n2 method.
 
-        Parameters:
-            scan (str): Path to the scan file or database identifier.
-            dict_fit (dict, optional): Predefined fitting parameters. If None, defaults are used.
-            n_peaks (int): Number of peaks to fit.
-            plot_initial_guess (bool): If True, plots the initial guesses.
-            print_fit_results (bool): If True, prints the fit report.
-            save_results (bool or str): If True or a path is provided, saves the fit results to a JSON file.
-            show_results (bool): If True, displays the plot.
-            gamma (float): Gamma value for fitting, defaults to 0.057.
+        Args:
+            energy (np.array): Array of energy values for the spectral data.
+            intensity (np.array): Array of intensity values for the spectral data.
+            title (str, optional): Title for the plot and saved results. Defaults to None.
+            dict_fit (dict, optional): Predefined fitting parameters. If None, initial guesses are used. Defaults to None.
+            plot_initial_guess (bool, optional): If True, plots the initial guesses. Defaults to False.
+            print_fit_results (bool, optional): If True, prints the fit report. Defaults to False.
+            save_results (bool or str, optional): If True or a path is provided, saves the fit results to a JSON file. Defaults to False.
+            show_results (bool, optional): If True, displays the plot. Defaults to True.
+            fwhm_l (float, optional): Full width at half maximum (Lorentzian) value. Defaults to 114.
+            motor (str, optional): Name of the motor to retrieve data from. Defaults to None.
+            detector (str, optional): Name of the detector to retrieve data from. Defaults to None.
+            summary (bool, optional): If True, prints the fit results summary. Defaults to False.
 
-        Effects:
-            Performs the fit, saves results, and optionally displays plots.
+        Returns:
+            tuple: A tuple containing the fit results dictionary and the fit object.
         """
-
-        if model == 'SkewedVoigt':
-            self.model = N2SkewedVoigtModelNoLine()
-        else:
-            raise NotImplemented('No other Model is Implemented')
-        
-        print(f'Starting the fit for {scan}')
-        gamma = fwhm_l/2000
-        if save_results:
-            if not os.path.exists(save_results):
-                os.makedirs(save_results)
-        energy, intensity  = self._retrieve_spectra(scan, motor=motor, detector=detector)
-        intensity = intensity-np.min(intensity)
-        if dict_fit is None:
-            dict_fit = self.model.get_initial_guess(energy,intensity, theoretical_centers,
-                                                    theoretical_intensities, 
-                                                    n_peaks, gamma=gamma)
-        
-        model, parameters = self.model.make_model(dict_fit)
-        
-        if plot_initial_guess:
-            self.plot_initial_guess(energy, intensity, model, parameters)
-
-        out = self._fit_n2(energy,intensity, dict_fit, print_fit_results=print_fit_results)
-        fit_results = self.analyze_fit_results(energy, 
-                                                intensity, 
-                                                out,
-                                                n_peaks=n_peaks)
-        base_name = os.path.basename(scan)
-        title = os.path.splitext(base_name)[0]
-        if save_results:
-            json_ready_results = convert_to_json_serializable(fit_results)
-            analysis_save_path = os.path.join(save_results, f'{title}.json')
-            with open(analysis_save_path, 'w') as json_file:
-                json.dump(json_ready_results, json_file, indent=4)
-
-        self._print_fit_results(fit_results)
-        self.plot_fit(title, energy, intensity, out, fit_results, save_results=save_results, show_results=show_results)
-       
+        fit_results, fit = self.fit_n2(energy, intensity, n_peaks=3, dict_fit=dict_fit, 
+                    plot_initial_guess=plot_initial_guess, 
+                    print_fit_results=print_fit_results, 
+                    save_results=save_results, show_results=show_results, 
+                    fwhm_l=fwhm_l, model='SkewedVoigt', background_model='offset', 
+                    motor=motor, detector=detector, summary=summary,title=title)
+        return fit_results, fit
+           
     def _print_fit_results(self, fit_results):
         """
-        Prints the fitting results in a formatted manner to summarize the key metrics such as resolving power and ratios.
+        Prints the fitting results in a formatted manner to summarize key metrics such as resolving power and ratios.
 
-        Parameters:
+        Args:
             fit_results (dict): A dictionary containing the results and metrics from the fitting process.
 
         Outputs:

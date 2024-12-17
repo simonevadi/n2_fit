@@ -4,6 +4,28 @@ import pandas as pd
 from scipy.special import erf
 from scipy.special import wofz
 
+def clean_data(x, y):
+    """
+    Removes NaN and negative values from 'y' and corresponding elements in 'x'.
+
+    Parameters:
+        x (np.array): Array of x values.
+        y (np.array): Array of y values.
+
+    Returns:
+        np.array: Cleaned x values.
+        np.array: Cleaned y values.
+    """
+    # Remove NaN values from 'y'
+    mask = ~np.isnan(y)
+    x, y = x[mask], y[mask]
+
+    # Remove negative values from 'y'
+    mask = y >= 0
+    x, y = x[mask], y[mask]
+
+    return x, y
+    
 def convert_to_json_serializable(data):
     if isinstance(data, dict):
         return {key: convert_to_json_serializable(value) for key, value in data.items()}
@@ -309,7 +331,7 @@ def extract_RP_ratio(x, y, fit):
     cen_v3 = params['v3_center'].value
 
     # Generate a finely spaced x array for evaluating the fit results more precisely
-    energy_fine = np.arange(x[0], x[-1], 0.01)
+    energy_fine = np.arange(x[0], x[-1], 0.001)
 
     # Evaluate the model intensity at the fine energy points
     if hasattr(fit, 'eval'):
@@ -322,7 +344,6 @@ def extract_RP_ratio(x, y, fit):
     idx_v1 = np.argmin(np.abs(energy_fine - cen_v1))
     idx_v2 = np.argmin(np.abs(energy_fine - cen_v2))
     idx_v3 = np.argmin(np.abs(energy_fine - cen_v3))
-    p3_x = energy_fine[idx_v3]
 
     # Find the minimum intensity (valley) between cen_v1 and cen_v2
     first_valley_intensity = np.min(intensity_fine[idx_v1:idx_v2])
@@ -330,7 +351,9 @@ def extract_RP_ratio(x, y, fit):
     v1_x = energy_fine[first_valley_intensity_arg]
 
     # Get the intensity (peak) at cen_v3
-    peak_v3_intensity = intensity_fine[idx_v3]
+    peak_v3_intensity = np.max(intensity_fine[idx_v3- 10: idx_v3+10])
+    peak_v3_intensity_arg = np.argmax(intensity_fine[idx_v3- 50: idx_v3+50])
+    p3_x = energy_fine[idx_v3- 50+peak_v3_intensity_arg]
 
     slope = params['lin_slope']
     intercept = params['lin_intercept']
