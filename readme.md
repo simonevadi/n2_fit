@@ -1,98 +1,131 @@
-This has to be updated!
+# N2 Fitting and Resolving Power Evaluation
 
+## Overview
+This repository provides a Python-based tool for analyzing and fitting nitrogen spectra data, estimating the resolving power (RP), and calculating the third-peak to first-valley (3P1V) ratio. The package uses the **Skewed Voigt model** for fitting and is built on top of the `lmfit` library.
 
-## N2 Fit Function
+## Features
+- Automatic fitting of nitrogen spectra.
+- Resolving power (RP) estimation based on Gaussian contributions.
+- Calculation of the 3P1V ratio.
+- Customizable initial parameters for fitting.
+- Supports fixed or free fit parameters.
+- Interactive visualization of spectral data and fits.
 
+## Installation
+To use the package, clone the repository and install the necessary dependencies:
 
-A function to evaluate the resolving power (RP) given a nitrogen spectrum is available, but still experimental. The function is called `fit_n2` and it tries to automatically fit a nitrogen spectrum and calculate the resolving power. The function accepts two kinds of arguments to retrieve the correct spectra to fit, and the motor and detector name:
+```bash
+# Clone the repository
+git clone https://github.com/simonevadi/n2_fit.git
+cd n2_fit
 
-- A negative integer number, that refers to which scan you want to evaluate. To evaluate the last scan use:
+# Install dependencies
+pip install -r requirements.txt
+```
 
-  ```bash
-  fit_n2(-1)
-  ```
+### Requirements
+- Python 3.9+
+- numpy
+- pandas
+- matplotlib
+- lmfit
+- tqdm
 
-- A string representing the unique identifier of a scan:
-
-  ```bash
-  fit_n2('67548d')
-  ```
-
-The function tries to fit the spectra, and if it is successful it estimates the RP by calculating the Gaussian contribution to the FWHM of the N2:1s-->𝛑* transition via the fit parameters. Additionally, it calculates the 3rd peak to 1st valley ratio.
-
-It is possible to pass the following arguments to the function:
-
-- **motor**: *string*, the motor name to be used as x-axis
-- **detector**: *string*, the detector readings to be used as y-axis
-- **print_fit_report**: *boolean*, it will print the complete fit report from the package *lmfit*
-- **save_img**: *string*, the absolute path and name to save the plots produced by the fit routine
-- **fit**: *bool*, if False, disable the fit routine and plot only the data and the initial guess.
-- **fix_param**: *bool*, if True, the (σ), gamma (γ) and *skew* parameters of each peak are the same.
-
-Additionally, it is possible to modify the initial guess of the parameters, see the section 'Manual modification of the initial parameters for the fit'. Here below is the function with all the possible arguments to copy/paste and modify:
+## Usage
+### Basic Fit Example
+The `fit_n2` method accepts spectral data and fits it using the **Skewed Voigt model**:
 
 ```python
-fit_n2(scan=-1, motor='pgm', detector='Keithley01', print_fit_report=False, save_img=False, fit=True,
-       vc1='auto', amp_sf=6, sigma=0.02, sigma_min=0.001, sigma_max=0.02, gamma=0.055)
+from fit import N2_fit
+
+# Example usage
+n2fit = N2_fit()
+energy = [list_of_energy_values]
+intensity = [list_of_intensity_values]
+
+n2fit.fit_n2(energy, intensity, title="MySpectrum", print_fit_results=True)
 ```
 
-### Fit Function: SkewedVoigtModel
+### Options for `fit_n2`
+- **energy**: List or array of energy values.
+- **intensity**: List or array of intensity values.
+- **title** *(str)*: Title for the plot.
+- **print_fit_results** *(bool)*: Prints the lmfit fit report.
+- **n_peaks** *(int)*: Number of peaks to fit (default: 5).
+- **save_results** *(bool/str)*: Saves results to a file if a path is provided.
+- **show_results** *(bool)*: Displays the fit plot interactively.
+- **fwhm_l** *(float)*: Lorentzian FWHM value (default: 114).
 
-To perform the fit, the Python package [lmfit](https://lmfit.github.io/lmfit-py/) is used. Two fit functions are available.
+### Resolving Power Calculation
+The RP is computed using the average Gaussian FWHM of the first three peaks:
 
-#### All Free Parameters
-
-Pass the following parameter to the fit function:
-```bash
-fix_param=False
+```math
+RP = \frac{\mu_2}{FWHM_g}
 ```
-The fit function is a sum of a straight line and ten Skewed Voigt Functions, as defined in the lmfit package. See the documentation about the [SkewedVoigtModel](https://lmfit.github.io/lmfit-py/builtin_models.html). Each function has five Parameters: amplitude (A), center (μ), sigma (σ), and gamma (γ), as usual for a Voigt distribution, and adds a new Parameter *skew*.
 
-#### Fixed Parameters
+Where the Gaussian FWHM is:
 
-Pass the following parameter to the fit function (or do not pass anything, by default is true):
-```bash
-fix_param=True
+```math
+FWHM_g = 2 \sqrt{2 \ln(2)} \sigma_2
 ```
-The fit function is a sum of a straight line and seven Skewed Voigt Functions, as defined in the lmfit package. See the documentation about the [SkewedVoigtModel](https://lmfit.github.io/lmfit-py/builtin_models.html). Each function has five Parameters: amplitude (A), center (μ), sigma (σ), and gamma (γ), as usual for a Voigt distribution, and adds a new Parameter *skew*. The sigma (σ), gamma (γ) and *skew* are the same for all the skewed Voigt functions.
 
-### Automatic Guessing of the Initial Parameters for the Fit
+### 3rd-Peak to 1st-Valley Ratio
+The 3P1V ratio is calculated and returned alongside the fit results, providing insight into spectral properties.The resolving power is also looked up in table, and this vaue is more reliable that the one from the fit. 
 
-The function tries to find out automatically the best initial parameters for the fit. First of all, normalization to the maximum value of the data is performed (this might create problems if we have an outlier with very high intensity). 
+## Visualizations
+The package includes tools for plotting:
+- **Initial fit guesses**: Visualize the initial parameters used for fitting.
+- **Fitting results**: Displays the data, fitted curve, and individual components.
 
-- Centers position (&mu;): the function looks for the maximum at the lowest energy in the spectra and assumes it is the first peak. The center of the other peaks is assumed using theoretical values for the peak separation. The fit procedure limits lower and upper bound to +/- 2.355*2*sigma
-- Amplitudes (A): the amplitude is defined as the intensity of the data at the position of the centers (&mu;) and scaled by a factor of 6. 
-- Sigma (&sigma;):  0.02 eV. 
-- Gamma (&gamma;): 0.0563. This values determine the Lorentzian FWHM: FWHM_l = 2*&gamma;
-- ''skew'': 0.
+Example:
+```python
+n2fit.fit_n2(energy, intensity, plot_initial_guess=True)
+```
 
-### Manual modification of the initial parameters for the fit 
-A number of parameters can be modified by passing the following arguments to the function:
+## Table Generation
+Use the `CreateTable` class to generate tables of RP and 3P1V ratios across a range of Gaussian and Lorentzian FWHM values:
 
-- '''vc1''': the center of the first peak, can be a ''float'' or set to 'auto'
-- '''amp_sf''' scaling factor for the amplitude, default is 6 
-- '''sigma''' the sigma of the the skewed voigt functions, default 0.02 
-- '''sigma_min''' the lower bound of the sigma value for the fit, default 0.001
-- '''sigma_max''' the upper bound of the sigma value for the fit, default 0.02
-- '''gamma''' the gamma parameter, default 0.055
+```python
+from create_table import CreateTable
 
-### Estimation of the RP 
+# Generate and save the table
+table_generator = CreateTable()
+df_results = table_generator.create_table(savepath="results_table.csv")
+```
 
-For the fit, a sum of 11 skewed Voigt functions is assumed. Once the fit is performed the RP is calculated as the ratio of the center and the FWHM of the second peak:
- RP=v2_&mu;/v2_fwhm_g
-where the gaussian contribution to the FWHM is calculated as:
+### Plot Table Results
+```python
+table_generator.plot_table(table_to_plot="results_table.csv", show_plot=True)
+```
 
-$$
-FWHM_g = 2 \cdot \sqrt{2 \ln(2)} \cdot v_{2\sigma}
-$$
+## Directory Structure
+```
+N2_Fit/
+├── fit.py               # Main fitting class
+├── models.py            # Skewed Voigt and background models
+├── create_table.py      # Resolving power table generation
+├── helper_functions.py  # Utility functions
+├── n2_peaks_parameters.py # Default theoretical values for peaks
+├── tables/              # Default tables (e.g., skewedVoigt.csv)
+├── examples/            # Example scripts and usage
+└── requirements.txt     # Dependencies
+```
+
+## Contributing
+Contributions are welcome! If you'd like to improve the package, submit a pull request or open an issue.
+
+1. Fork the repository.
+2. Create a new branch:
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+3. Commit your changes:
+   ```bash
+   git commit -m "Add your description here"
+   ```
+4. Push the changes and open a pull request.
+
+## License
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
 
-The problem of this method is that some of the monochromator contributions escape into the Lorentzian shape, the &gamma; parameter. 
-One would have to know the physical lifetime broadening of each line extremely precisely in order to determine the ''artificial'' monochromator contribution into &gamma;. 
-
-
-### 3rd-peak to 1st-valley ratio 
-
-The fit routine returns the v/p ratio
-
- Here is a link to some of [R. Ollath calculations](http://help.bessy.de/~follath/spektren/nitrogen/simulation.html) (accessible only within bessy network, but currently down)
