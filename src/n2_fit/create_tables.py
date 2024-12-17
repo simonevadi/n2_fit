@@ -6,6 +6,8 @@ from tqdm import tqdm
 from .models import N2SkewedVoigtModel
 from .helper_functions import extract_RP_ratio_for_table
 
+from .n2_peaks_parameters import theoretical_centers, voigt_intensities, first_peak, theoretical_intensities
+
 class CreateTable:
     """
     A class dedicated to creating tables for analyzing the 3rd-peak to 1st-valley ratio
@@ -28,19 +30,6 @@ class CreateTable:
         Raises:
             NotImplementedError: If a model other than 'SkewedVoigt' is specified.
         """
-        self.theoretical_centers=np.array([400.880,401.114,401.341,
-                                           401.563,401.782,401.997,
-                                           402.208,402.414])
-        self.first_peak = 400.76
-        self.theoretical_intensities=np.array([1,0.9750,0.5598,0.2443,
-                                            0.0959,0.0329,0.0110,0.0027])
-        self.voigt_intensities = np.array([0.17458469651855146,
-                                           0.16666979884071098,
-                                           0.09333082103718075,
-                                           0.04077470824430837,
-                                           0.015676096467807606,
-                                           0.005823501673555101,
-                                            0.002160335806013886])
         if model == 'SkewedVoigt':
             self.model = N2SkewedVoigtModel()
         else:
@@ -80,13 +69,15 @@ class CreateTable:
 
         for g in gamma:
             for f in fwhm_g:
-                dict_fit = self.model.prepare_param_for_table(self.theoretical_centers, self.theoretical_centers, fwhm_g=f, gamma=g)
+                dict_fit = self.model.prepare_param_for_table(fwhm_g=f, gamma=g)
                 mod, pars = self.model.make_model(dict_fit)
-                energy = np.arange(self.theoretical_centers[0]-1, self.theoretical_centers[-1]+1, 0.01)
+                energy = np.arange(theoretical_centers[0]-1, theoretical_centers[-1]+1, 0.01)
                 intensity = mod.eval(pars, x=energy)
                 vp_ratio = extract_RP_ratio_for_table(energy, intensity, pars)
-                rp = int(self.first_peak / f)
-                results.append({'FWHM_l (meV)': np.round(2*g*1000,2), 'FWHM_g (meV)': np.round(f*1000, 2), 'RP': rp, '3P1V Ratio': vp_ratio})
+                rp = int(first_peak / f)
+                results.append({'FWHM_l (meV)': np.round(2*g*1000,2),
+                                'FWHM_g (meV)': np.round(f*1000, 2),
+                                'RP': rp, '3P1V Ratio': vp_ratio})
                 progress_bar.update(1)  # Update the progress bar per iteration
 
         progress_bar.close()
@@ -133,7 +124,8 @@ class CreateTable:
             gamma_data = df[df['FWHM_l (meV)'] == gamma]
             
             # Plot FWHM vs RP for each gamma
-            ax.plot(gamma_data['3P1V Ratio'], gamma_data['RP'], linestyle='-', label=f'FWHM_l: {gamma} meV')
+            ax.plot(gamma_data['3P1V Ratio'], gamma_data['RP'],
+                    linestyle='-',label=f'FWHM_l: {gamma} meV')
 
         # Setting plot labels and titles
         ax.set_xlabel('3rdPeak/1st valley ratio', fontsize=12)
