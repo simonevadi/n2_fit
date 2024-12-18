@@ -35,7 +35,7 @@ class N2FitBluesky:
             tuple: A tuple containing two numpy arrays; the first for motor positions (x) and the second for detector counts (y).
         """       
 
-        run = self._db[identifier]
+        run = self.db[identifier]
         if detector == None:
             detector  = run.metadata['start']['detectors'][0]
         if motor == None:
