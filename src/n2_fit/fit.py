@@ -223,7 +223,7 @@ class N2_fit:
             plt.savefig(save_path)
         if show_results:
             plt.show()
-        if close_plot:
+        if close_plot or not show_results:
             plt.close()
 
     def _analyze_fit_results(self, energy, intensity, fit, n_peaks):
